@@ -22,7 +22,7 @@ func NewHeader() *Header {
 	id := uuid.New().String()
 	rich := fmt.Sprintf("http://localhost:8000/v/%s", id)
 	plain := fmt.Sprintf("http://localhost:8000/p/%s", id)
-	wS := fmt.Sprintf("http://localhost:8000/wshtml/%s", id)
+	wS := fmt.Sprintf("http://localhost:8000/%s", id)
 	buf := bytes.NewBuffer(make([]byte, 0))
 	header := &Header{
 		Id:        id,
@@ -46,6 +46,43 @@ type Header struct {
 func (h *Header) String() string {
 	return pretty.JSONString(h)
 }
+
+var indexhtml = `
+<!doctype html>
+  <html>
+    <head>
+      <link rel="stylesheet" href="node_modules/xterm/dist/xterm.css" />
+      <script src="node_modules/xterm/dist/xterm.js"></script>
+    </head>
+    <body>
+      <div id="terminal"></div>
+      <script>
+
+  var term = new Terminal({
+    convertEol: true,
+    scrollback: 10000,
+    disableStdin: true,
+    cursorBlink: true,
+  });
+
+        //var term = new Terminal();
+        term.open(document.getElementById('terminal'));
+        term.write('Hello from \x1B[1;3;31mxterm.js\x1B[0m $ ')
+
+        var socket = new WebSocket("ws://localhost:8000/ws/%s");
+
+        socket.onopen = function () {
+                term.write("Status: Connected\n");
+        };
+
+        socket.onmessage = function (e) {
+                term.write(e.data);
+        };
+
+      </script>
+    </body>
+  </html>
+`
 
 var wshtml = `
 <input id="input" type="text" />
@@ -77,8 +114,13 @@ func front() {
 	http.HandleFunc("/echo.html", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "echo.html")
 	})
+	http.Handle("/node_modules/", http.FileServer(http.Dir(".")))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "index.html")
+		//http.ServeFile(w, r, "index.html")
+		//http.FileServer(http.Dir(".")).ServeHTTP(w, r)
+		w.Header().Set("Content-Type", "text/html")
+		id := strings.TrimPrefix(r.RequestURI, "/")
+		w.Write([]byte(fmt.Sprintf(indexhtml, id)))
 	})
 	http.HandleFunc("/wshtml/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.RequestURI, "/wshtml/")
