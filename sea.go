@@ -22,12 +22,14 @@ func NewHeader() *Header {
 	id := uuid.New().String()
 	rich := fmt.Sprintf("http://localhost:8000/v/%s", id)
 	plain := fmt.Sprintf("http://localhost:8000/p/%s", id)
+	wS := fmt.Sprintf("http://localhost:8000/wshtml/%s", id)
 	buf := bytes.NewBuffer(make([]byte, 0))
 	header := &Header{
 		Id:        id,
 		RichText:  rich,
 		PlainText: plain,
 		Buffer:    buf,
+		WS:        wS,
 	}
 	Headers[id] = header
 	return header
@@ -37,12 +39,37 @@ type Header struct {
 	Id        string        `json:"id"`
 	RichText  string        `json:"rich_text"`
 	PlainText string        `json:"plain_text"`
+	WS        string        `json:"WS"`
 	Buffer    *bytes.Buffer `json:-`
 }
 
 func (h *Header) String() string {
 	return pretty.JSONString(h)
 }
+
+var wshtml = `
+<input id="input" type="text" />
+<button onclick="send()">Send</button>
+<pre id="output"></pre>
+<script>
+        var input = document.getElementById("input");
+        var output = document.getElementById("output");
+        var socket = new WebSocket("ws://localhost:8000/ws/%s");
+
+        socket.onopen = function () {
+                output.innerHTML += "Status: Connected\n";
+        };
+
+        socket.onmessage = function (e) {
+                output.innerHTML += "Server: " + e.data + "\n";
+        };
+
+        function send() {
+                socket.send(input.value);
+                input.value = "";
+        }
+</script>
+`
 
 func front() {
 	log.Println("listening on port http://0.0.0.0:8000")
@@ -52,6 +79,33 @@ func front() {
 	})
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "index.html")
+	})
+	http.HandleFunc("/wshtml/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.RequestURI, "/wshtml/")
+		if _, ok := Headers[id]; !ok {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, http.StatusText(http.StatusNotFound))
+			return
+		}
+		//io.WriteString(w, )
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(fmt.Sprintf(wshtml, id)))
+	})
+	http.HandleFunc("/ws/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.RequestURI, "/ws/")
+		if _, ok := Headers[id]; !ok {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, http.StatusText(http.StatusNotFound))
+			return
+		}
+		buffer := Headers[id].Buffer
+		ws.Handler(func(wsconn *ws.Conn) {
+			for {
+				// io.Copy(chunkedConn, buffer)
+				io.Copy(wsconn, buffer)
+				time.Sleep(time.Second / 10)
+			}
+		}).ServeHTTP(w, r)
 	})
 	http.Handle("/ws", ws.Handler(func(wsconn *ws.Conn) {
 		io.Copy(io.MultiWriter(wsconn, os.Stderr), wsconn)
@@ -135,7 +189,7 @@ func main() {
 			continue
 		}
 		header := NewHeader()
-		log.Println("connected:", conn.RemoteAddr(), header.Id, header.PlainText, header.RichText)
+		log.Println("connected:", conn.RemoteAddr(), header.Id, header.PlainText, header.RichText, header.WS)
 		go io.Copy(io.MultiWriter(os.Stdout, header.Buffer), conn)
 		io.WriteString(conn, header.String())
 	}
