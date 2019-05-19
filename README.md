@@ -3,6 +3,14 @@ Sea
 
 clone of seashells.io
 
+## Setup
+```
+git clone https://github.com/navigaid/sea
+cd sea
+npm install xterm
+go run sea.go
+```
+
 ## Play
 ```
 head -n1 <(jq -r --unbuffered .uuid <(exec 3<>/dev/tcp/127.0.0.1/1337; cat <&3)); echo hello >&3; echo world >&3
