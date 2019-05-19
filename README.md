@@ -25,3 +25,5 @@ clear | nc localhost 1337
 ## Refs
 - https://stackoverflow.com/questions/32684119/exit-when-one-process-in-pipe-fails/53382807#53382807
 - https://news.ycombinator.com/item?id=14739479
+- https://github.com/anishathalye/seashells
+- https://seashells.io/
