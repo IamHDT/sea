@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/navigaid/pretty"
@@ -14,19 +16,24 @@ import (
 
 func NewHeader() *Header {
 	id := uuid.New().String()
-	rich := fmt.Sprintf("http://localhost/v/%s", id)
-	plain := fmt.Sprintf("http://localhost/p/%s", id)
-	return &Header{
+	rich := fmt.Sprintf("http://localhost:8000/v/%s", id)
+	plain := fmt.Sprintf("http://localhost:8000/p/%s", id)
+	buf := bytes.NewBuffer(make([]byte, 0))
+	header := &Header{
 		Id:        id,
 		RichText:  rich,
 		PlainText: plain,
+		Buffer:    buf,
 	}
+	Headers[id] = header
+	return header
 }
 
 type Header struct {
-	Id        string `json:"id"`
-	RichText  string `json:"rich_text"`
-	PlainText string `json:"plain_text"`
+	Id        string        `json:"id"`
+	RichText  string        `json:"rich_text"`
+	PlainText string        `json:"plain_text"`
+	Buffer    *bytes.Buffer `json:-`
 }
 
 func (h *Header) String() string {
@@ -35,8 +42,21 @@ func (h *Header) String() string {
 
 func front() {
 	log.Println("listening on port http://0.0.0.0:8000")
+	http.HandleFunc("/p/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.RequestURI, "/p/")
+		if _, ok := Headers[id]; !ok {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, http.StatusText(http.StatusNotFound))
+			return
+		}
+		log.Println("reading buffer for", id)
+		//go io.Copy(w, Headers[id].Buffer)
+		w.Write(Headers[id].Buffer.Bytes())
+	})
 	log.Fatalln(http.ListenAndServe(":8000", nil))
 }
+
+var Headers = make(map[string]*Header)
 
 func main() {
 	go front()
@@ -52,8 +72,8 @@ func main() {
 			continue
 		}
 		header := NewHeader()
-		log.Println("connected:", conn.RemoteAddr(), header.Id)
-		go io.Copy(os.Stdout, conn)
+		log.Println("connected:", conn.RemoteAddr(), header.Id, header.PlainText)
+		go io.Copy(io.MultiWriter(os.Stdout, header.Buffer), conn)
 		io.WriteString(conn, header.String())
 	}
 }
