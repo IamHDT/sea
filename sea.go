@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/navigaid/pretty"
 )
 
@@ -44,6 +45,33 @@ func (h *Header) String() string {
 
 func front() {
 	log.Println("listening on port http://0.0.0.0:8000")
+	//http.Handle("/echo.html", http.FileServer(http.Dir(".")))
+	http.HandleFunc("/echo.html", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "echo.html")
+	})
+	http.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
+		var upgrader = websocket.Upgrader{
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+		}
+		conn, _ := upgrader.Upgrade(w, r, nil) // error ignored for sake of simplicity
+
+		for {
+			// Read message from browser
+			msgType, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+
+			// Print the message to the console
+			fmt.Printf("%s sent: %s\n", conn.RemoteAddr(), string(msg))
+
+			// Write message back to browser
+			if err = conn.WriteMessage(msgType, msg); err != nil {
+				return
+			}
+		}
+	})
 	http.HandleFunc("/p/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.RequestURI, "/p/")
 		if _, ok := Headers[id]; !ok {
