@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/navigaid/pretty"
+	ws "golang.org/x/net/websocket"
 )
 
 func NewHeader() *Header {
@@ -49,6 +50,12 @@ func front() {
 	http.HandleFunc("/echo.html", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "echo.html")
 	})
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "index.html")
+	})
+	http.Handle("/ws", ws.Handler(func(wsconn *ws.Conn) {
+		io.Copy(io.MultiWriter(wsconn, os.Stderr), wsconn)
+	}))
 	http.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
 		var upgrader = websocket.Upgrader{
 			ReadBufferSize:  1024,
