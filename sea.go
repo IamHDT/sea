@@ -7,8 +7,10 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/navigaid/pretty"
@@ -49,9 +51,35 @@ func front() {
 			io.WriteString(w, http.StatusText(http.StatusNotFound))
 			return
 		}
-		log.Println("reading buffer for", id)
+		log.Println("dumping buffer for", id)
 		//go io.Copy(w, Headers[id].Buffer)
 		w.Write(Headers[id].Buffer.Bytes())
+	})
+	http.HandleFunc("/v/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.RequestURI, "/v/")
+		if _, ok := Headers[id]; !ok {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, http.StatusText(http.StatusNotFound))
+			return
+		}
+		buffer := Headers[id].Buffer
+		// w.Write(Headers[id].Buffer.Bytes())
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		chunkedConn := httputil.NewChunkedWriter(conn)
+		defer chunkedConn.Close()
+		log.Println("streaming buffer for", id)
+		io.WriteString(conn, "HTTP/1.1 200 OK\r\n")
+		io.WriteString(conn, "Content-Type: text/plain; charset=utf-8\r\n")
+		io.WriteString(conn, "Transfer-Encoding: chunked\r\n")
+		io.WriteString(conn, "\r\n")
+		for {
+			io.Copy(chunkedConn, buffer)
+			time.Sleep(time.Second / 10)
+		}
 	})
 	log.Fatalln(http.ListenAndServe(":8000", nil))
 }
@@ -72,7 +100,7 @@ func main() {
 			continue
 		}
 		header := NewHeader()
-		log.Println("connected:", conn.RemoteAddr(), header.Id, header.PlainText)
+		log.Println("connected:", conn.RemoteAddr(), header.Id, header.PlainText, header.RichText)
 		go io.Copy(io.MultiWriter(os.Stdout, header.Buffer), conn)
 		io.WriteString(conn, header.String())
 	}
