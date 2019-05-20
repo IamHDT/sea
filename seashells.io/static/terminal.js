@@ -28,8 +28,10 @@
 
   socket.onmessage = function(event) {
     var data = event.data;
-    var str = new TextDecoder('utf-8').decode(new Uint8Array(data));
-    term.write(str);
+    term.write(data)
+    //var str = new TextDecoder('utf-8').decode(new Uint8Array(data));
+    //console.log(data, str)
+    //term.write(str);
   };
 
   socket.onopen = function() {

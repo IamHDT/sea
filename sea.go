@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -10,6 +11,7 @@ import (
 	"net/http/httputil"
 	"os"
 	"strings"
+	"text/template"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -17,6 +19,38 @@ import (
 	"github.com/navigaid/pretty"
 	ws "golang.org/x/net/websocket"
 )
+
+var vtemplate = `
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seashells - {{.Id}}</title>
+    <link rel="stylesheet" href="../static/vendor/xterm.css">
+    <link rel="stylesheet" href="../static/terminal.css">
+    <script src="../static/vendor/xterm.js"></script>
+    <script src="../static/vendor/fit.js"></script>
+    <script src="../static/vendor/encoding-indexes.js"></script>
+    <script src="../static/vendor/encoding.js"></script>
+    <script>
+      (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+      (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+      m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+      })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+      ga('create', 'UA-140472724-1', 'auto');
+      ga('send', 'pageview');
+    </script>
+  </head>
+  <body>
+    <div id="terminal"></div>
+    <script>
+      sessionId = "{{.Id}}";
+    </script>
+    <script src="../static/terminal.js"></script>
+  </body>
+</html>
+`
 
 func NewHeader() *Header {
 	id := uuid.New().String()
@@ -119,11 +153,8 @@ var wshtml = `
 func front() {
 	log.Println("listening on port http://0.0.0.0:8000")
 	//http.Handle("/echo.html", http.FileServer(http.Dir(".")))
-	http.HandleFunc("/echo.html", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "echo.html")
-	})
-	http.Handle("/node_modules/", http.FileServer(http.Dir(".")))
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.Handle("/", http.FileServer(http.Dir("./seashells.io")))
+	http.HandleFunc("/hehehehehe", func(w http.ResponseWriter, r *http.Request) {
 		//http.ServeFile(w, r, "index.html")
 		//http.FileServer(http.Dir(".")).ServeHTTP(w, r)
 		w.Header().Set("Content-Type", "text/html")
@@ -143,6 +174,7 @@ func front() {
 	})
 	http.HandleFunc("/ws/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.RequestURI, "/ws/")
+
 		if _, ok := Headers[id]; !ok {
 			w.WriteHeader(http.StatusNotFound)
 			io.WriteString(w, http.StatusText(http.StatusNotFound))
@@ -163,7 +195,28 @@ func front() {
 		}).ServeHTTP(w, r)
 	})
 	http.Handle("/ws", ws.Handler(func(wsconn *ws.Conn) {
-		io.Copy(io.MultiWriter(wsconn, os.Stderr), wsconn)
+		buf, err := ioutil.ReadAll(io.LimitReader(wsconn, 36))
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		id := string(buf)
+		log.Println("sessionId", id)
+
+		if _, ok := Headers[id]; !ok {
+			//w.WriteHeader(http.StatusNotFound)
+			io.WriteString(wsconn, http.StatusText(http.StatusNotFound))
+			return
+		}
+		tail, err := tail.TailFile(Headers[id].File.Name(), tail.Config{Follow: true})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		for line := range tail.Lines {
+			io.WriteString(wsconn, line.Text+"\n")
+		}
 	}))
 	http.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
 		var upgrader = websocket.Upgrader{
@@ -215,7 +268,8 @@ func front() {
 	})
 	http.HandleFunc("/v/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.RequestURI, "/v/")
-		if _, ok := Headers[id]; !ok {
+		header, ok := Headers[id]
+		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			io.WriteString(w, http.StatusText(http.StatusNotFound))
 			return
@@ -225,6 +279,19 @@ func front() {
 			log.Println(err)
 			return
 		}
+
+		tmpl, err := template.New(id).Parse(vtemplate)
+		if err != nil {
+			panic(err)
+		}
+		rendered := bytes.NewBuffer(make([]byte, 0))
+		err = tmpl.Execute(rendered, header)
+		if err != nil {
+			panic(err)
+		}
+		w.Write(rendered.Bytes())
+		return
+
 		// buffer := Headers[id].Buffer
 		// w.Write(Headers[id].Buffer.Bytes())
 		conn, _, err := w.(http.Hijacker).Hijack()
