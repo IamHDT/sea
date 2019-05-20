@@ -7,8 +7,7 @@ clone of seashells.io
 ```
 git clone https://github.com/navigaid/sea
 cd sea
-npm install xterm
-go run sea.go
+go run .
 ```
 
 ## Play
