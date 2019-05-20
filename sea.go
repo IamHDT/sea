@@ -1,19 +1,19 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/hpcloud/tail"
 	"github.com/navigaid/pretty"
 	ws "golang.org/x/net/websocket"
 )
@@ -23,28 +23,36 @@ func NewHeader() *Header {
 	rich := fmt.Sprintf("http://localhost:8000/v/%s", id)
 	plain := fmt.Sprintf("http://localhost:8000/p/%s", id)
 	wS := fmt.Sprintf("http://localhost:8000/%s", id)
-	buf := bytes.NewBuffer(make([]byte, 0))
+	file, err := os.Create("/tmp/" + id)
+	if err != nil {
+		log.Fatalln(err)
+	}
 	header := &Header{
 		Id:        id,
 		RichText:  rich,
 		PlainText: plain,
-		Buffer:    buf,
 		WS:        wS,
+		File:      file,
 	}
 	Headers[id] = header
 	return header
 }
 
 type Header struct {
-	Id        string        `json:"id"`
-	RichText  string        `json:"rich_text"`
-	PlainText string        `json:"plain_text"`
-	WS        string        `json:"WS"`
-	Buffer    *bytes.Buffer `json:-`
+	Id        string   `json:"id"`
+	RichText  string   `json:"rich_text"`
+	PlainText string   `json:"plain_text"`
+	WS        string   `json:"WS"`
+	File      *os.File `json:-`
 }
 
 func (h *Header) String() string {
-	return pretty.JSONString(h)
+	return pretty.JSONString(map[string]interface{}{
+		"id":         h.Id,
+		"rich_text":  h.RichText,
+		"plain_text": h.PlainText,
+		"ws":         h.WS,
+	})
 }
 
 var indexhtml = `
@@ -140,12 +148,17 @@ func front() {
 			io.WriteString(w, http.StatusText(http.StatusNotFound))
 			return
 		}
-		buffer := Headers[id].Buffer
+		tail, err := tail.TailFile(Headers[id].File.Name(), tail.Config{Follow: true})
+		if err != nil {
+			log.Println(err)
+			return
+		}
 		ws.Handler(func(wsconn *ws.Conn) {
-			for {
+			for line := range tail.Lines {
 				// io.Copy(chunkedConn, buffer)
-				io.Copy(wsconn, buffer)
-				time.Sleep(time.Second / 10)
+				//io.Copy(wsconn, buffer)
+				io.WriteString(wsconn, line.Text+"\n")
+				//time.Sleep(time.Second / 10)
 			}
 		}).ServeHTTP(w, r)
 	})
@@ -183,8 +196,22 @@ func front() {
 			return
 		}
 		log.Println("dumping buffer for", id)
-		//go io.Copy(w, Headers[id].Buffer)
-		w.Write(Headers[id].Buffer.Bytes())
+		//io.Copy(w, Headers[id].File)
+		file, err := os.Open(Headers[id].File.Name())
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		buf, err := ioutil.ReadAll(file)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, err.Error())
+			return
+		}
+
+		if _, err := w.Write(buf); err != nil {
+			log.Println(err)
+		}
 	})
 	http.HandleFunc("/v/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.RequestURI, "/v/")
@@ -193,7 +220,12 @@ func front() {
 			io.WriteString(w, http.StatusText(http.StatusNotFound))
 			return
 		}
-		buffer := Headers[id].Buffer
+		tail, err := tail.TailFile(Headers[id].File.Name(), tail.Config{Follow: true})
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		// buffer := Headers[id].Buffer
 		// w.Write(Headers[id].Buffer.Bytes())
 		conn, _, err := w.(http.Hijacker).Hijack()
 		if err != nil {
@@ -207,9 +239,9 @@ func front() {
 		io.WriteString(conn, "Content-Type: text/plain; charset=utf-8\r\n")
 		io.WriteString(conn, "Transfer-Encoding: chunked\r\n")
 		io.WriteString(conn, "\r\n")
-		for {
-			io.Copy(chunkedConn, buffer)
-			time.Sleep(time.Second / 10)
+		for line := range tail.Lines {
+			//io.Copy(chunkedConn, buffer)
+			io.WriteString(chunkedConn, line.Text+"\n")
 		}
 	})
 	log.Fatalln(http.ListenAndServe(":8000", nil))
@@ -232,7 +264,7 @@ func main() {
 		}
 		header := NewHeader()
 		log.Println("connected:", conn.RemoteAddr(), header.Id, header.PlainText, header.RichText, header.WS)
-		go io.Copy(io.MultiWriter(os.Stdout, header.Buffer), conn)
+		go io.Copy(io.MultiWriter(os.Stdout, header.File), conn)
 		io.WriteString(conn, header.String())
 	}
 }
