@@ -13,7 +13,7 @@ func Dev(file string) (chan byte, chan struct{}) {
 	zeros := make(chan byte)
 	done := make(chan struct{})
 
-	buf := make([]byte, 1024)
+	buf := make([]byte, 65536)
 	devzero, err := os.Open(file)
 	if err != nil {
 		panic(err)
@@ -52,7 +52,6 @@ func Dev(file string) (chan byte, chan struct{}) {
 			}
 			log.Println("offset:", offset, "read", n)
 			for i := range buf[:n] {
-				println(i)
 				zeros <- buf[i]
 			}
 			offset += n
