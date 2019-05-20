@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"strings"
 	"text/template"
@@ -185,6 +184,7 @@ func front() {
 			log.Println(err)
 			return
 		}
+		defer println("disconnected")
 		ws.Handler(func(wsconn *ws.Conn) {
 			for line := range tail.Lines {
 				// io.Copy(chunkedConn, buffer)
@@ -208,14 +208,16 @@ func front() {
 			io.WriteString(wsconn, http.StatusText(http.StatusNotFound))
 			return
 		}
-		tail, err := tail.TailFile(Headers[id].File.Name(), tail.Config{Follow: true})
-		if err != nil {
-			log.Println(err)
-			return
-		}
 
-		for line := range tail.Lines {
-			io.WriteString(wsconn, line.Text+"\n")
+		tail, done := Dev("/tmp/" + id)
+
+		defer func() {
+			println("close")
+			close(done)
+		}()
+
+		for b := range tail {
+			wsconn.Write([]byte{b})
 		}
 	}))
 	http.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
@@ -274,12 +276,6 @@ func front() {
 			io.WriteString(w, http.StatusText(http.StatusNotFound))
 			return
 		}
-		tail, err := tail.TailFile(Headers[id].File.Name(), tail.Config{Follow: true})
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
 		tmpl, err := template.New(id).Parse(vtemplate)
 		if err != nil {
 			panic(err)
@@ -291,25 +287,6 @@ func front() {
 		}
 		w.Write(rendered.Bytes())
 		return
-
-		// buffer := Headers[id].Buffer
-		// w.Write(Headers[id].Buffer.Bytes())
-		conn, _, err := w.(http.Hijacker).Hijack()
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		chunkedConn := httputil.NewChunkedWriter(conn)
-		defer chunkedConn.Close()
-		log.Println("streaming buffer for", id)
-		io.WriteString(conn, "HTTP/1.1 200 OK\r\n")
-		io.WriteString(conn, "Content-Type: text/plain; charset=utf-8\r\n")
-		io.WriteString(conn, "Transfer-Encoding: chunked\r\n")
-		io.WriteString(conn, "\r\n")
-		for line := range tail.Lines {
-			//io.Copy(chunkedConn, buffer)
-			io.WriteString(chunkedConn, line.Text+"\n")
-		}
 	})
 	log.Fatalln(http.ListenAndServe(":8000", nil))
 }

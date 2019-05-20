@@ -11,7 +11,9 @@ import (
 
 func Dev(file string) (chan byte, chan struct{}) {
 	zeros := make(chan byte)
-	buf := make([]byte, 4)
+	done := make(chan struct{})
+
+	buf := make([]byte, 1024)
 	devzero, err := os.Open(file)
 	if err != nil {
 		panic(err)
@@ -22,11 +24,7 @@ func Dev(file string) (chan byte, chan struct{}) {
 		log.Fatal(err)
 	}
 
-	done := make(chan struct{})
-
-	fileName := "file"
-
-	err = watcher.Add(fileName)
+	err = watcher.Add(file)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -63,7 +61,7 @@ func Dev(file string) (chan byte, chan struct{}) {
 	return zeros, done
 }
 
-func main() {
+func testDev() {
 	zeros, done := Dev("file")
 	for i := 0; ; i++ {
 		b := <-zeros
