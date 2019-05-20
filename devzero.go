@@ -9,10 +9,10 @@ import (
 	"gopkg.in/fsnotify.v1"
 )
 
-func DevZero() (chan byte, chan struct{}) {
+func Dev(file string) (chan byte, chan struct{}) {
 	zeros := make(chan byte)
 	buf := make([]byte, 4)
-	devzero, err := os.Open("file")
+	devzero, err := os.Open(file)
 	if err != nil {
 		panic(err)
 	}
@@ -64,7 +64,7 @@ func DevZero() (chan byte, chan struct{}) {
 }
 
 func main() {
-	zeros, done := DevZero()
+	zeros, done := Dev("file")
 	for i := 0; ; i++ {
 		b := <-zeros
 		if b == 0x31 {
