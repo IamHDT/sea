@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -9,8 +8,8 @@ import (
 	"gopkg.in/fsnotify.v1"
 )
 
-func Dev(file string) (chan byte, chan struct{}) {
-	zeros := make(chan byte)
+func Dev(file string) (chan []byte, chan struct{}) {
+	zeros := make(chan []byte)
 	done := make(chan struct{})
 
 	buf := make([]byte, 65536)
@@ -51,15 +50,14 @@ func Dev(file string) (chan byte, chan struct{}) {
 				}
 			}
 			log.Println("offset:", offset, "read", n)
-			for i := range buf[:n] {
-				zeros <- buf[i]
-			}
+			zeros <- buf[:n]
 			offset += n
 		}
 	}()
 	return zeros, done
 }
 
+/*
 func testDev() {
 	zeros, done := Dev("file")
 	for i := 0; ; i++ {
@@ -71,3 +69,4 @@ func testDev() {
 		fmt.Printf("[%d] %x\n", i, b)
 	}
 }
+*/

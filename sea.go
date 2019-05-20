@@ -217,7 +217,7 @@ func front() {
 		}()
 
 		for b := range tail {
-			wsconn.Write([]byte{b})
+			wsconn.Write(b)
 		}
 	}))
 	http.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
