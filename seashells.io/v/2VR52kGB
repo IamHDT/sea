@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Seashells - 2VR52kGB</title>
+    <title>Seashells - {{.Id}}</title>
     <link rel="stylesheet" href="../static/vendor/xterm.css">
     <link rel="stylesheet" href="../static/terminal.css">
     <script src="../static/vendor/xterm.js"></script>
@@ -15,14 +15,14 @@
       (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
       m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
       })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
-      ga('create', 'UA-53167467-6', 'auto');
+      ga('create', 'UA-140472724-1', 'auto');
       ga('send', 'pageview');
     </script>
   </head>
   <body>
     <div id="terminal"></div>
     <script>
-      sessionId = "2VR52kGB";
+      sessionId = "{{.Id}}";
     </script>
     <script src="../static/terminal.js"></script>
   </body>
