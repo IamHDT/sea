@@ -14,7 +14,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/navigaid/pretty"
-	ws "golang.org/x/net/websocket"
+	"golang.org/x/net/websocket"
+	"gopkg.in/fsnotify.v1"
 )
 
 var Headers = make(map[string]*Header)
@@ -51,7 +52,8 @@ var vtemplate = `
 </html>
 `
 
-func NewHeader() *Header {
+func NewHeader(conn net.Conn) *Header {
+	ip := conn.RemoteAddr().String()
 	id := uuid.New().String()
 	rich := fmt.Sprintf("http://localhost:8000/v/%s", id)
 	plain := fmt.Sprintf("http://localhost:8000/p/%s", id)
@@ -59,61 +61,34 @@ func NewHeader() *Header {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	doneTCP := make(chan struct{})
 	header := &Header{
+		IP:        ip,
 		Id:        id,
 		RichText:  rich,
 		PlainText: plain,
-		File:      file,
+		file:      file,
+		doneTCP:   doneTCP,
 	}
 	Headers[id] = header
 	return header
 }
 
 type Header struct {
+	IP        string   `json:"ip"`
 	Id        string   `json:"id"`
-	RichText  string   `json:"rich_text"`
-	PlainText string   `json:"plain_text"`
-	File      *os.File `json:-`
+	RichText  string   `json:"v"`
+	PlainText string   `json:"p"`
+	file      *os.File //`json:"-"`
+	doneTCP   chan struct{}
 }
 
 func (h *Header) String() string {
-	return pretty.JSONString(map[string]interface{}{
-		"id":         h.Id,
-		"rich_text":  h.RichText,
-		"plain_text": h.PlainText,
-	})
+	return pretty.JSONString(h)
 }
 
-func front() {
-	log.Println("listening on port http://0.0.0.0:8000")
+func serveWS() {
 	http.Handle("/", http.FileServer(http.Dir("./seashells.io")))
-	http.Handle("/ws", ws.Handler(func(wsconn *ws.Conn) {
-		buf, err := ioutil.ReadAll(io.LimitReader(wsconn, 36))
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		id := string(buf)
-		log.Println("sessionId", id)
-
-		if _, ok := Headers[id]; !ok {
-			//w.WriteHeader(http.StatusNotFound)
-			io.WriteString(wsconn, http.StatusText(http.StatusNotFound))
-			return
-		}
-
-		tail, done := Dev("/tmp/" + id)
-
-		for b := range tail {
-			_, err := wsconn.Write(b)
-			if err != nil {
-				log.Println(err)
-				println("closing connection")
-				close(done)
-				return
-			}
-		}
-	}))
 	http.HandleFunc("/p/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.RequestURI, "/p/")
 		if _, ok := Headers[id]; !ok {
@@ -123,7 +98,7 @@ func front() {
 		}
 		log.Println("dumping buffer for", id)
 		//io.Copy(w, Headers[id].File)
-		file, err := os.Open(Headers[id].File.Name())
+		file, err := os.Open(Headers[id].file.Name())
 		if err != nil {
 			log.Println(err)
 			return
@@ -159,11 +134,38 @@ func front() {
 		w.Write(rendered.Bytes())
 		return
 	})
+	http.Handle("/ws", websocket.Handler(func(wsconn *websocket.Conn) {
+		buf, err := ioutil.ReadAll(io.LimitReader(wsconn, 36))
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		id := string(buf)
+		log.Println("sessionId", id)
+
+		if _, ok := Headers[id]; !ok {
+			//w.WriteHeader(http.StatusNotFound)
+			io.WriteString(wsconn, http.StatusText(http.StatusNotFound))
+			return
+		}
+
+		tail, doneWS := Dev("/tmp/"+id, Headers[id].doneTCP)
+
+		for b := range tail {
+			_, err := wsconn.Write(b)
+			if err != nil {
+				log.Println(err)
+				//println("closing connection")
+				close(doneWS)
+				return
+			}
+		}
+	}))
+	log.Println("listening on port http://0.0.0.0:8000")
 	log.Fatalln(http.ListenAndServe(":8000", nil))
 }
 
-func main() {
-	go front()
+func serveTCP() {
 	log.Println("listening on port tcp://0.0.0.0:1337")
 	ln, err := net.Listen("tcp", ":1337")
 	if err != nil {
@@ -175,9 +177,69 @@ func main() {
 			log.Println(err)
 			continue
 		}
-		header := NewHeader()
-		log.Println("connected:", conn.RemoteAddr(), header.Id, header.PlainText, header.RichText)
-		go io.Copy(io.MultiWriter(os.Stdout, header.File), conn)
+		header := NewHeader(conn)
+		log.Print("connected:", header)
+		go func() {
+			io.Copy(header.file, conn)
+			println("tcp client disconnected")
+			close(header.doneTCP)
+		}()
 		io.WriteString(conn, header.String())
 	}
+}
+
+func Dev(file string, doneTCP chan struct{}) (chan []byte, chan struct{}) {
+	data := make(chan []byte)
+	done := make(chan struct{})
+
+	buf := make([]byte, 65536)
+	devzero, err := os.Open(file)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	err = watcher.Add(file)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	offset := 0
+	go func() {
+		for {
+			n, err := devzero.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Println(err)
+					break
+				}
+				//log.Println("reached EOF, waiting for update", "read:", n)
+				select {
+				case <-doneTCP:
+					return
+				case <-done:
+					println("ws client disconnected")
+					return
+				case event := <-watcher.Events:
+					if event.Op&fsnotify.Write == fsnotify.Write {
+						//log.Println("modified file:", event.Name)
+					}
+				}
+			}
+			// log.Println("offset:", offset, "read", n)
+			data <- buf[:n]
+			offset += n
+		}
+	}()
+	return data, done
+}
+
+func main() {
+	go serveWS()
+	go serveTCP()
+	select {}
 }
