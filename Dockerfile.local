@@ -1,0 +1,6 @@
+FROM alpine
+WORKDIR /bin
+COPY ./seashells.io ./seashells.io
+COPY ./sea ./sea
+EXPOSE 1337 8000
+CMD ["/bin/sea"]

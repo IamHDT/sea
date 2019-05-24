@@ -1,13 +1,19 @@
+[![Docker Build Status](https://img.shields.io/docker/cloud/build/navigaid/sea.svg)](https://hub.docker.com/r/navigaid/sea) [![Docker Pulls](https://img.shields.io/docker/pulls/navigaid/sea.svg)](https://hub.docker.com/r/navigaid/sea) [![Docker Stars](https://img.shields.io/docker/stars/navigaid/sea.svg)](https://hub.docker.com/r/navigaid/sea)
+
 Sea
 ===
 
 clone of seashells.io
 
-## Setup
+## Run in docker
 ```
-git clone https://github.com/navigaid/sea
-cd sea
-go run .
+docker run -it --name sea -p 1337:1337 -p 8000:8000 --rm navigaid/sea
+```
+
+## Run natively
+```
+git get github.com/navigaid/sea
+$(go env GOPATH)/bin/sea
 ```
 
 ## Play

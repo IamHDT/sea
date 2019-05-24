@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"text/template"
 
@@ -88,7 +89,11 @@ func (h *Header) String() string {
 }
 
 func serveWS() {
-	http.Handle("/", http.FileServer(http.Dir("./seashells.io")))
+	exe, err := os.Executable()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	http.Handle("/", http.FileServer(http.Dir(path.Join(path.Dir(exe), "seashells.io"))))
 	http.HandleFunc("/p/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.RequestURI, "/p/")
 		if _, ok := Headers[id]; !ok {
